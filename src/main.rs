@@ -8,10 +8,8 @@ extern crate regex;
 extern crate scoped_threadpool;
 extern crate tokio;
 
-use std::env;
-use std::io::{Read, Result};
-use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::io::Read;
+use std::process::Command;
 
 use env_logger::{Builder, Env};
 use librespot_audio::{AudioDecrypt, AudioFile};
@@ -28,7 +26,6 @@ use librespot_core::Error;
 use librespot_metadata::{Metadata, Track};
 use librespot_metadata::audio::{AudioFileFormat};
 use regex::Regex;
-use scoped_threadpool::Pool;
 
 // Read and write vorbiscomment metadata
 use oggvorbismeta::{
