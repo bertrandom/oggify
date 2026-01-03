@@ -9,11 +9,9 @@ extern crate scoped_threadpool;
 extern crate tokio;
 
 use std::env;
-use std::io::Write;
-use std::io::{self, BufRead, Read, Result};
+use std::io::{Read, Result};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
 
 use env_logger::{Builder, Env};
 use librespot_audio::{AudioDecrypt, AudioFile};
@@ -27,19 +25,19 @@ use librespot_core::cache::Cache;
 use librespot_core::Error;
 
 
-use librespot_metadata::{Album, Artist, Metadata, Track};
+use librespot_metadata::{Metadata, Track};
 use librespot_metadata::audio::{AudioFileFormat};
 use regex::Regex;
 use scoped_threadpool::Pool;
 
 // Read and write vorbiscomment metadata
 use oggvorbismeta::{
-    read_comment_header, replace_comment_header, CommentHeader, VorbisComments,
+    replace_comment_header, CommentHeader, VorbisComments,
 };
 use std::fs::File;
 use std::io::Cursor;
 
-use clap::{Parser, Subcommand};
+use clap::Parser;
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -76,7 +74,7 @@ async fn main() {
 
   let cli = Cli::parse();
 
-  let args: Vec<_> = env::args().collect();
+  let _args: Vec<_> = env::args().collect();
 
 
   let url_input = cli.group.url.as_deref().unwrap();
@@ -250,7 +248,7 @@ async fn main() {
   let mut f_out_disk = File::create(file_out).unwrap();
   std::io::copy(&mut f_out, &mut f_out_disk).unwrap();
 
-  let ffmpeg_cmd = format!(
+  let _ffmpeg_cmd = format!(
       "/opt/homebrew/bin/ffmpeg -i {}/{}-tagged.ogg -map_metadata 0:s:0 -write_id3v2 1 -id3v2_version 3 {}/{}.mp3",
       OUTPUT_DIR, track_id, OUTPUT_DIR, track_id
   );
