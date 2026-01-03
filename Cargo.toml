@@ -11,10 +11,13 @@ readme = "README.md"
 
 [dependencies]
 tokio = { version = "1.13.0", features = ["rt-multi-thread", "time"] }
-librespot-core = { git = "https://github.com/librespot-org/librespot.git", tag = "v0.3.1" }
-librespot-metadata = { git = "https://github.com/librespot-org/librespot.git", tag = "v0.3.1" }
-librespot-audio = { git = "https://github.com/librespot-org/librespot.git", tag = "v0.3.1" }
+librespot-core = { git = "https://github.com/librespot-org/librespot.git", tag = "v0.8.0" }
+librespot-metadata = { git = "https://github.com/librespot-org/librespot.git", tag = "v0.8.0" }
+librespot-audio = { git = "https://github.com/librespot-org/librespot.git", tag = "v0.8.0" }
+librespot-oauth = { git = "https://github.com/librespot-org/librespot.git", tag = "v0.8.0" }
 regex = "1.1.0"
 log = "0.4.6"
 env_logger = "0.6.0"
 scoped_threadpool = "0.1.9"
+clap = { version = "4.5.54", features = ["derive"] }
+oggvorbismeta = "0.2.0"

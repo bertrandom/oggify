@@ -1,2 +1,5 @@
 /target
 **/*.rs.bk
+.cache
+output
+.DS_Store
