@@ -117,14 +117,14 @@ async fn process_track(
 
     comments.add_tag_single("album", track.album.name.clone());
     comments.add_tag_single("tracknumber", track.number.to_string());
-    comments.add_tag_single("title", track_name.clone());
+    comments.add_tag_single("title", &track_name);
     comments.add_tag_single("date", track.album.date.year().to_string());
 
     let tagged_ogg = format!("{}/{}-tagged.ogg", OUTPUT_DIR, track_id);
     let mut tagged = replace_comment_header(Cursor::new(f_in_ram), &comments)?;
 
     info!("Save to disk");
-    let mut f_out_disk = File::create(tagged_ogg.clone()).unwrap();
+    let mut f_out_disk = File::create(&tagged_ogg).unwrap();
     std::io::copy(&mut tagged, &mut f_out_disk).unwrap();
 
     // --- ffmpeg ---
@@ -132,7 +132,7 @@ async fn process_track(
         "{}/{} - {}.mp3",
         OUTPUT_DIR,
         artists.join(", "),
-        track_name
+        &track_name
     );
 
     let status = Command::new("/opt/homebrew/bin/ffmpeg")
