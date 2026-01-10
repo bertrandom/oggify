@@ -7,6 +7,7 @@ extern crate log;
 extern crate regex;
 extern crate scoped_threadpool;
 extern crate tokio;
+extern crate sanitize_filename;
 
 use std::io::Read;
 use std::process::Command;
@@ -22,8 +23,7 @@ use librespot_core::{SpotifyUri};
 use librespot_core::cache::Cache;
 use librespot_core::Error;
 
-
-use librespot_metadata::{Metadata, Track};
+use librespot_metadata::{Metadata, Track, Playlist, Album};
 use librespot_metadata::audio::{AudioFileFormat};
 use regex::Regex;
 
@@ -33,32 +33,15 @@ use oggvorbismeta::{
 };
 use std::fs::File;
 use std::io::Cursor;
+use std::pin::Pin;
 
 use clap::Parser;
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
 struct Cli {
-
-    #[clap(flatten)]
-    group: Group,
-
-    /// Optional name to operate on
-    name: Option<String>,
-
-}
-
-#[derive(Debug, clap::Args)]
-#[group(required = true, multiple = false)]
-pub struct Group {
-    /// Argument1.
-    #[clap(short, long)]
+    #[arg(required = true)]
     url: Option<String>,
-
-    /// Input file with URLs, use '-' for stdin
-    #[clap(long)]
-    urls: Option<String>,
-
 }
 
 const CACHE: &str = ".cache";
@@ -68,6 +51,8 @@ const OUTPUT_DIR: &str = "output";
 async fn process_track(
     spotify_uri: &str,
     session: &Session,
+    track_num: Option<u32>,
+    subdir: Option<&str>,
 ) -> std::result::Result<(), Box<dyn std::error::Error>> {
 
     let uri = SpotifyUri::from_uri(spotify_uri)?;
@@ -84,6 +69,36 @@ async fn process_track(
 
     let track_name = track.name.clone();
     let track_id = track.id.to_base62().unwrap();
+
+    info!("Processing track: {} - {}", artists.join(", "), &track_name);
+
+    info!(
+      "File formats: {}",
+      track
+        .files
+        .keys()
+        .map(|filetype| format!("{:?}", filetype))
+        .collect::<Vec<_>>()
+        .join(" ")
+    );
+
+    // If track.files is empty
+    if track.files.is_empty() && !track.alternatives.is_empty() {
+
+      let alt_track = track.alternatives.get(0).unwrap().to_string();
+
+      info!(
+        "Switching to alternative track: {}",
+        alt_track
+      );
+
+      if let Err(e) = Pin::from(Box::new(process_track(&alt_track, &session, track_num, subdir))).await {
+          error!("Failed: {e}");
+      }
+
+      return Ok(());
+
+    }
 
     let file_id = track
         .files
@@ -127,13 +142,46 @@ async fn process_track(
     let mut f_out_disk = File::create(&tagged_ogg).unwrap();
     std::io::copy(&mut tagged, &mut f_out_disk).unwrap();
 
+    let output_mp3_filename: String;
+
     // --- ffmpeg ---
-    let output_mp3 = format!(
-        "{}/{} - {}.mp3",
-        OUTPUT_DIR,
-        artists.join(", "),
-        &track_name
-    );
+    if track_num.is_some() {
+
+        output_mp3_filename = format!(
+            "{} - {}.mp3",
+            format!("{:02}", track_num.unwrap()),
+            &track_name
+        );
+
+    } else {
+
+        output_mp3_filename = format!(
+            "{} - {}.mp3",
+            artists.join(", "),
+            &track_name
+        );
+
+    }
+
+    let options = sanitize_filename::Options {
+        truncate: true, // true by default, truncates to 255 bytes
+        windows: true, // default value depends on the OS, removes reserved names like `con` from start of strings on Windows
+        replacement: "" // str to replace sanitized chars/strings
+    };
+
+    let output_mp3_filename_sanitized = sanitize_filename::sanitize_with_options(output_mp3_filename, options);
+
+    let output_mp3: String;
+
+    if let Some(subdir_name) = subdir {
+        let output_subdir = format!("{}/{}", OUTPUT_DIR, subdir_name);
+        std::fs::create_dir_all(&output_subdir)?;
+        output_mp3 = format!("{}/{}", output_subdir, output_mp3_filename_sanitized);
+
+    } else {
+        std::fs::create_dir_all(OUTPUT_DIR)?;
+        output_mp3 = format!("{}/{}", OUTPUT_DIR, output_mp3_filename_sanitized);
+    }
 
     let status = Command::new("/opt/homebrew/bin/ffmpeg")
         .arg("-y")
@@ -161,24 +209,104 @@ async fn process_track(
     Ok(())
 }
 
+async fn fetch_album(
+    spotify_album_uri: &str,
+    session: &Session,
+) -> std::result::Result<(), Box<dyn std::error::Error>> {
+
+    let uri = SpotifyUri::from_uri(spotify_album_uri)?;
+    let id_str = uri.to_id().unwrap();
+    let _id = SpotifyId::from_base62(&id_str)?;
+
+    let album = Album::get(&session, &uri).await?;
+
+    info!("Done, album name: {}", album.name);
+
+    let mut track_num = 1;
+
+    let options = sanitize_filename::Options {
+        truncate: true, // true by default, truncates to 255 bytes
+        windows: true, // default value depends on the OS, removes reserved names like `con` from start of strings on Windows
+        replacement: "" // str to replace sanitized chars/strings
+    };
+
+    let subdir_sanitized = sanitize_filename::sanitize_with_options(&album.name, options);
+
+    for item in album.tracks() {
+        info!("Processing track: {}", item);
+        let track_uri = item.to_string();
+
+        if let Err(e) = process_track(&track_uri, session, Some(track_num), Some(subdir_sanitized.as_str())).await {
+            error!("Failed: {e}");
+        }
+
+        track_num = track_num + 1;
+    }
+
+    Ok(())
+
+}
+
+async fn fetch_playlist(
+    spotify_playlist_uri: &str,
+    session: &Session,
+) -> std::result::Result<(), Box<dyn std::error::Error>> {
+
+    let uri = SpotifyUri::from_uri(spotify_playlist_uri)?;
+    let id_str = uri.to_id().unwrap();
+    let _id = SpotifyId::from_base62(&id_str)?;
+
+    let playlist = Playlist::get(&session, &uri).await?;
+
+    info!("Done, playlist name: {}", playlist.name());
+
+    let mut track_num = 1;
+
+    let options = sanitize_filename::Options {
+        truncate: true, // true by default, truncates to 255 bytes
+        windows: true, // default value depends on the OS, removes reserved names like `con` from start of strings on Windows
+        replacement: "" // str to replace sanitized chars/strings
+    };
+
+    let subdir_sanitized = sanitize_filename::sanitize_with_options(playlist.name(), options);
+
+    for item in playlist.tracks() {
+        info!("Processing track: {}", item);
+        let track_uri = item.to_string();
+
+        if let Err(e) = process_track(&track_uri, session, Some(track_num), Some(subdir_sanitized.as_str())).await {
+            error!("Failed: {e}");
+        }
+
+        track_num = track_num + 1;
+
+    }
+
+    Ok(())
+
+}
+
 #[tokio::main]
 async fn main() {
     Builder::from_env(Env::default().default_filter_or("info")).init();
 
     let cli = Cli::parse();
-    let url_input = cli.group.url.as_deref().unwrap();
+    let url_input = cli.url.as_deref().unwrap();
 
-    let spotify_url = Regex::new(r"open\.spotify\.com/track/([[:alnum:]]+)").unwrap();
+    let spotify_url = Regex::new(r"open\.spotify\.com/(track|album|playlist)/([[:alnum:]]+)").unwrap();
     let caps = match spotify_url.captures(url_input) {
         Some(c) => c,
         None => {
-            error!("Only Spotify track URLs are supported");
+            error!("Only Spotify track/album/playlist URLs are supported");
             return;
         }
     };
 
-    let track_id = caps.get(1).unwrap().as_str();
-    let spotify_uri = format!("spotify:track:{track_id}");
+    let spotify_type = caps.get(1).unwrap().as_str();
+    let track_id = caps.get(2).unwrap().as_str();
+    let spotify_uri = format!("spotify:{spotify_type}:{track_id}");
+
+    info!("Parsed Spotify URI: {}", spotify_uri);
 
     let session_config = SessionConfig::default();
 
@@ -202,13 +330,23 @@ async fn main() {
     match session.connect(credentials, true).await {
         Ok(()) => info!("Session username: {:#?}", session.username()),
         Err(e) => {
-            println!("Error connecting: {e}");
+            error!("Error connecting: {e}");
             return;
         }
     };
 
-    if let Err(e) = process_track(&spotify_uri, &session).await {
-        error!("Failed: {e}");
+    if spotify_type == "track" {
+        if let Err(e) = process_track(&spotify_uri, &session, None, None).await {
+            error!("Failed: {e}");
+        }
+    } else if spotify_type == "playlist" {
+        if let Err(e) = fetch_playlist(&spotify_uri, &session).await {
+            error!("Failed: {e}");
+        }
+    } else if spotify_type == "album" {
+        if let Err(e) = fetch_album(&spotify_uri, &session).await {
+            error!("Failed: {e}");
+        }
     }
 
 }

@@ -21,3 +21,4 @@ env_logger = "0.6.0"
 scoped_threadpool = "0.1.9"
 clap = { version = "4.5.54", features = ["derive"] }
 oggvorbismeta = "0.2.0"
+sanitize-filename = "0.6.0"
