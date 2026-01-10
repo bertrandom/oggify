@@ -68,7 +68,7 @@ async fn process_track(
         .collect::<Vec<_>>();
 
     let track_name = track.name.clone();
-    let track_id = track.id.to_base62().unwrap();
+    let track_id = track.id.to_id().unwrap();
 
     info!("Processing track: {} - {}", artists.join(", "), &track_name);
 
