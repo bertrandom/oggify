@@ -37,6 +37,8 @@ use std::pin::Pin;
 
 use clap::Parser;
 
+use tokio::time::{sleep, Duration};
+
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
 struct Cli {
@@ -240,6 +242,9 @@ async fn fetch_album(
             error!("Failed: {e}");
         }
 
+        info!("Sleeping 5 seconds between tracks to avoid rate limiting...");
+        sleep(Duration::from_secs(5)).await;
+
         track_num = track_num + 1;
     }
 
@@ -277,6 +282,9 @@ async fn fetch_playlist(
         if let Err(e) = process_track(&track_uri, session, Some(track_num), Some(subdir_sanitized.as_str())).await {
             error!("Failed: {e}");
         }
+
+        info!("Sleeping 5 seconds between tracks to avoid rate limiting...");
+        sleep(Duration::from_secs(5)).await;
 
         track_num = track_num + 1;
 
